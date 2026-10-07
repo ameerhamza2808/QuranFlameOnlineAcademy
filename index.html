@@ -120,7 +120,7 @@ async function onData(d){if(!d)return;
  else if(d.t==='speech'){const my=$('lang').value;let src=d.lang;if(src==='ur'&&/[\u0900-\u097F]/.test(d.text))src='hi';
   try{const out=await tr(d.text,src,my),sl=ttsLang(my),sp=sl===my?out:await tr(d.text,src,sl);
    msg(out,'Heard ('+LANGS[d.lang][0]+' → '+LANGS[my][0]+')');speak(sp,sl,d.voice)}catch(e){msg(d.text,'Translation failed (check internet)')}}}
-function setup(c){conn=c;c.on('open',()=>c.send({t:'hi',role:$('role').value,lang:$('lang').value,voice:$('voice').value}));
+function setup(c){conn=c;let sent=false;const hi=()=>{if(sent)return;sent=true;c.send({t:'hi',role:$('role').value,lang:$('lang').value,voice:$('voice').value})};c.on('open',hi);if(c.open)hi();c.on('iceStateChanged',x=>{if(x==='failed')$('status').textContent='Network blocked the direct link. Try Wi-Fi on both devices, or a different network.'});
  c.on('data',onData);c.on('close',()=>{$('status').textContent='The other person left.';$('mic').disabled=true})}
 function hook(c){call=c;c.on('stream',s=>{$('rv').srcObject=s})}
 const gen=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<6;i++)s+=a[Math.floor(Math.random()*a.length)];return s};
@@ -128,10 +128,10 @@ async function enter(code,host){
  hostMode=host;$('setup').classList.add('hide');$('live').classList.remove('hide');$('mic').disabled=true;
  $('status').textContent=host?'Waiting for the other person to join…':'Connecting…';
  try{local=await navigator.mediaDevices.getUserMedia({video:true,audio:false});cam=local.getVideoTracks()[0];$('lv').srcObject=local}catch(e){msg('Camera not available ('+e.name+'). Talk and screen share still work.','System')}
- const id='qfa-'+code;peer=host?new Peer(id):new Peer();
- peer.on('error',e=>{$('status').textContent='Connection problem: '+e.type+(e.type==='peer-unavailable'?' (wrong code, or the class has not started)':'')});
- if(host){peer.on('connection',setup);peer.on('call',c=>{c.answer(local||new MediaStream());hook(c)})}
- else peer.on('open',()=>{setup(peer.connect(id,{reliable:true}));if(local)hook(peer.call(id,local));else peer.on('call',c=>{c.answer(new MediaStream());hook(c)})})}
+ const id='qfa-'+code,cfg={config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turns:openrelay.metered.ca:443?transport=tcp'],username:'openrelayproject',credential:'openrelayproject'}]}};peer=host?new Peer(id,cfg):new Peer(cfg);
+ peer.on('disconnected',()=>{$('status').textContent='Lost connection to the class server. Reload and try again.'});peer.on('error',e=>{$('status').textContent='Connection problem: '+e.type+(e.type==='peer-unavailable'?' (wrong code, or the class has not started)':'')});
+ if(host){peer.on('open',()=>{$('status').textContent='Class is ready ✓ Send the code and wait for the other person…'});peer.on('connection',setup);peer.on('call',c=>{c.answer(local||new MediaStream());hook(c)})}
+ else peer.on('open',()=>{setTimeout(()=>{if(!other)$('status').textContent='Could not connect. Check the code (6 characters), that the class creator still has the page open, and try another network.'},20000);setup(peer.connect(id,{reliable:true}));if(local)hook(peer.call(id,local));else peer.on('call',c=>{c.answer(new MediaStream());hook(c)})})}
 $('startBtn').onclick=()=>{const c=gen();$('codeshow').textContent=c;$('codebox').classList.remove('hide');enter(c,true)};
 $('joinBtn').onclick=()=>{const c=$('codein').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');if(c.length<6){$('status').textContent='Please paste the 6-character code you received.';return}enter(c,false)};
 $('copy').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText($('codeshow').textContent).then(()=>$('copy').textContent='Copied ✓').catch(()=>{})};
