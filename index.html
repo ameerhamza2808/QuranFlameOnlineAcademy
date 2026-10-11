@@ -107,12 +107,12 @@ function speak(text,tl,vk){const v=VOICES[vk]||VOICES.w1,b=tl==='hi'?'hi-IN':LAN
  if(!all.length&&!speechSynthesis.getVoices().length&&!window._sr){window._sr=1;setTimeout(()=>{window._sr=0;speak(text,tl,vk)},500);return}
  if(!all.length){msg('No '+(tl==='hi'?'Hindi':LANGS[tl][0])+' voice is installed on this device. Showing text only.','System');return}
  const u=new SpeechSynthesisUtterance(text);u.lang=b;u.pitch=Math.min(2,v[1]);u.rate=v[2];
- const pool=all.filter(x=>(v[3]=='f'?FEM:MAL).test(x.name)),p=pool.length?pool:all;u.voice=p[(vk=='w2'||vk=='m2')&&p.length>1?1:0];u.onerror=e=>msg('Voice error: '+e.error,'System');if(speechSynthesis.speaking)speechSynthesis.cancel();setTimeout(()=>speechSynthesis.speak(u),120)}
+ const loc=a=>{const l=a.filter(x=>x.localService);return l.length?l:a};const pool=loc(all).filter(x=>(v[3]=='f'?FEM:MAL).test(x.name)),p=pool.length?pool:loc(all);u.voice=p[(vk=='w2'||vk=='m2')&&p.length>1?1:0];u.onerror=e=>msg('Voice error: '+e.error,'System');window._u=u;if(speechSynthesis.speaking)speechSynthesis.cancel();speechSynthesis.resume();msg('🔊 '+u.voice.name+' ('+b+')','Speaking');setTimeout(()=>speechSynthesis.speak(u),150)}
 const dec=x=>new DOMParser().parseFromString(x,'text/html').body.textContent;
-async function tr(t,from,to){if(from===to)return t;
- const r=await fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(t)+'&langpair='+from+'|'+to);const j=await r.json();
- if(j.responseStatus&&+j.responseStatus!==200)throw new Error(j.responseDetails||'translation limit reached');
- return dec((j.responseData&&j.responseData.translatedText)||t)}
+async function tr(t,from,to){if(from===to)return t;const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),8000);
+ try{const r=await fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(t)+'&langpair='+from+'|'+to,{signal:ac.signal});const j=await r.json();
+  if(j.responseStatus&&+j.responseStatus!==200)throw new Error(j.responseDetails||'translation limit reached');
+  return dec((j.responseData&&j.responseData.translatedText)||t)}finally{clearTimeout(tm)}}
 $('chk').onclick=()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,vs=speechSynthesis.getVoices(),L=[...new Set(vs.map(x=>x.lang.replace('_','-').slice(0,2).toLowerCase()))];
  $('testst').innerHTML='Mic speech recognition: <b>'+(SR?'supported':'NOT supported')+'</b><br>Voices installed: <b>'+vs.length+'</b> ('+(L.join(', ')||'none')+')<br>Urdu voice: <b>'+(L.includes('ur')?'yes':'no')+'</b> · Hindi voice: <b>'+(L.includes('hi')?'yes':'no')+'</b>'};
 $('test').onclick=()=>{const l=$('lang').value,t=ttsLang(l);speak(t==='hi'&&l==='ur'?HI:SAMPLE[l],t,$('voice').value);$('testst').textContent='Playing your voice sample…'};
@@ -121,7 +121,7 @@ async function onData(d){if(!d)return;nRecv++;dbg();
  if(d.t==='hi'){other=d;$('status').innerHTML='Connected with <b>'+d.role+'</b> (speaks '+LANGS[d.lang][0]+').';$('mic').disabled=false}
  else if(d.t==='speech'){msg(d.text,'Received ('+LANGS[d.lang][0]+')');const my=$('lang').value;let src=d.lang;if(src==='ur'&&/[\u0900-\u097F]/.test(d.text))src='hi';
   try{const out=await tr(d.text,src,my),sl=ttsLang(my),sp=sl===my?out:await tr(d.text,src,sl);
-   msg(out,'Heard ('+LANGS[d.lang][0]+' → '+LANGS[my][0]+')');speak(sp,sl,d.voice)}catch(e){msg('Translation failed: '+(e&&e.message||e)+'. Check internet.','System')}}}
+   msg(out,'Heard ('+LANGS[d.lang][0]+' → '+LANGS[my][0]+')');speak(sp,sl,d.voice)}catch(e){msg('Translation failed ('+(e&&e.name==='AbortError'?'timeout':(e&&e.message||e))+'). Speaking the original words instead.','System');speak(d.text,ttsLang(d.lang),d.voice)}}}
 function setup(c){conn=c;let sent=false;const hi=()=>{if(sent)return;sent=true;c.send({t:'hi',role:$('role').value,lang:$('lang').value,voice:$('voice').value})};c.on('open',()=>{st.data=1;dbg();hi()});if(c.open){st.data=1;dbg();hi()}c.on('iceStateChanged',x=>{if(x==='failed')$('status').textContent='Network blocked the direct link. Try Wi-Fi on both devices, or a different network.'});
  c.on('data',onData);c.on('close',()=>{$('status').textContent='The other person left.';$('mic').disabled=true})}
 function hook(c){call=c;c.on('stream',s=>{$('rv').srcObject=s;st.vid=1;dbg()})}
