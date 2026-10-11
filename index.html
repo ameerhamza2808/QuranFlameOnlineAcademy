@@ -77,7 +77,7 @@ footer{padding:28px 20px;text-align:center;color:var(--mu);font-size:13px}
 <div class="st" id="status"></div>
 <div id="live" class="hide">
 <div class="vids"><div><video id="rv" autoplay playsinline muted></video><div class="st">Other person</div></div><div><video id="lv" autoplay playsinline muted></video><div class="st">You</div></div></div>
-<div class="ctl"><button class="mic" id="mic" title="Speak">🎤</button><button class="btn alt" id="scr">🖥 Share screen</button><button class="btn alt" id="leave">Leave</button></div>
+<div class="ctl"><button class="mic" id="mic" title="Speak">🎤</button><button class="btn alt" id="scr">🖥 Share screen</button><button class="btn alt" id="leave">Leave</button><label style="display:flex;gap:6px;align-items:center;margin:0;text-transform:none;letter-spacing:0"><input type="checkbox" id="orig" style="width:auto">Hear original voice too</label></div>
 <div class="st" id="micst" style="text-align:center">Tap the mic and speak. The other person hears you translated.</div>
 <div class="row" style="margin-top:14px"><input id="typed" placeholder="Or type your message here (works for Urdu too)"><button class="btn" id="sendT">Send</button></div><div id="log"></div></div>
 </section></div>
@@ -104,9 +104,10 @@ const msg=(t,s,me)=>{const d=document.createElement('div');d.className='m'+(me?'
 const vf=p=>speechSynthesis.getVoices().filter(x=>x.lang.replace('_','-').toLowerCase().startsWith(p));
 const ttsLang=l=>(l==='ur'&&!vf('ur').length&&vf('hi').length)?'hi':l;
 function speak(text,tl,vk){const v=VOICES[vk]||VOICES.w1,b=tl==='hi'?'hi-IN':LANGS[tl][1],all=vf(b.slice(0,2));
+ if(!all.length&&!speechSynthesis.getVoices().length&&!window._sr){window._sr=1;setTimeout(()=>{window._sr=0;speak(text,tl,vk)},500);return}
  if(!all.length){msg('No '+(tl==='hi'?'Hindi':LANGS[tl][0])+' voice is installed on this device. Showing text only.','System');return}
  const u=new SpeechSynthesisUtterance(text);u.lang=b;u.pitch=Math.min(2,v[1]);u.rate=v[2];
- const pool=all.filter(x=>(v[3]=='f'?FEM:MAL).test(x.name)),p=pool.length?pool:all;u.voice=p[(vk=='w2'||vk=='m2')&&p.length>1?1:0];speechSynthesis.cancel();speechSynthesis.speak(u)}
+ const pool=all.filter(x=>(v[3]=='f'?FEM:MAL).test(x.name)),p=pool.length?pool:all;u.voice=p[(vk=='w2'||vk=='m2')&&p.length>1?1:0];u.onerror=e=>msg('Voice error: '+e.error,'System');if(speechSynthesis.speaking)speechSynthesis.cancel();setTimeout(()=>speechSynthesis.speak(u),120)}
 const dec=x=>new DOMParser().parseFromString(x,'text/html').body.textContent;
 async function tr(t,from,to){if(from===to)return t;
  const r=await fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(t)+'&langpair='+from+'|'+to);const j=await r.json();
@@ -117,9 +118,9 @@ $('test').onclick=()=>{const l=$('lang').value,t=ttsLang(l);speak(t==='hi'&&l===
 
 async function onData(d){if(!d)return;
  if(d.t==='hi'){other=d;$('status').innerHTML='Connected with <b>'+d.role+'</b> (speaks '+LANGS[d.lang][0]+').';$('mic').disabled=false}
- else if(d.t==='speech'){const my=$('lang').value;let src=d.lang;if(src==='ur'&&/[\u0900-\u097F]/.test(d.text))src='hi';
+ else if(d.t==='speech'){msg(d.text,'Received ('+LANGS[d.lang][0]+')');const my=$('lang').value;let src=d.lang;if(src==='ur'&&/[\u0900-\u097F]/.test(d.text))src='hi';
   try{const out=await tr(d.text,src,my),sl=ttsLang(my),sp=sl===my?out:await tr(d.text,src,sl);
-   msg(out,'Heard ('+LANGS[d.lang][0]+' → '+LANGS[my][0]+')');speak(sp,sl,d.voice)}catch(e){msg(d.text,'Translation failed (check internet)')}}}
+   msg(out,'Heard ('+LANGS[d.lang][0]+' → '+LANGS[my][0]+')');speak(sp,sl,d.voice)}catch(e){msg('Translation failed: '+(e&&e.message||e)+'. Check internet.','System')}}}
 function setup(c){conn=c;let sent=false;const hi=()=>{if(sent)return;sent=true;c.send({t:'hi',role:$('role').value,lang:$('lang').value,voice:$('voice').value})};c.on('open',hi);if(c.open)hi();c.on('iceStateChanged',x=>{if(x==='failed')$('status').textContent='Network blocked the direct link. Try Wi-Fi on both devices, or a different network.'});
  c.on('data',onData);c.on('close',()=>{$('status').textContent='The other person left.';$('mic').disabled=true})}
 function hook(c){call=c;c.on('stream',s=>{$('rv').srcObject=s})}
@@ -127,7 +128,8 @@ const gen=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i
 async function enter(code,host){
  hostMode=host;$('setup').classList.add('hide');$('live').classList.remove('hide');$('mic').disabled=true;
  $('status').textContent=host?'Waiting for the other person to join…':'Connecting…';
- try{local=await navigator.mediaDevices.getUserMedia({video:true,audio:false});cam=local.getVideoTracks()[0];$('lv').srcObject=local}catch(e){msg('Camera not available ('+e.name+'). Talk and screen share still work.','System')}
+ for(const c of [{video:true,audio:true},{video:true},{audio:true}]){try{local=await navigator.mediaDevices.getUserMedia(c);break}catch(e){}}
+ if(local){cam=local.getVideoTracks()[0]||null;$('lv').srcObject=local}else msg('Camera and mic not available. Check browser permissions. You can still type.','System')
  const id='qfa-'+code,cfg={config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turns:openrelay.metered.ca:443?transport=tcp'],username:'openrelayproject',credential:'openrelayproject'}]}};peer=host?new Peer(id,cfg):new Peer(cfg);
  peer.on('disconnected',()=>{$('status').textContent='Lost connection to the class server. Reload and try again.'});peer.on('error',e=>{$('status').textContent='Connection problem: '+e.type+(e.type==='peer-unavailable'?' (wrong code, or the class has not started)':'')});
  if(host){peer.on('open',()=>{$('status').textContent='Class is ready ✓ Send the code and wait for the other person…'});peer.on('connection',setup);peer.on('call',c=>{c.answer(local||new MediaStream());hook(c)})}
@@ -136,6 +138,7 @@ $('startBtn').onclick=()=>{const c=gen();$('codeshow').textContent=c;$('codebox'
 $('joinBtn').onclick=()=>{const c=$('codein').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');if(c.length<6){$('status').textContent='Please paste the 6-character code you received.';return}enter(c,false)};
 $('copy').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText($('codeshow').textContent).then(()=>$('copy').textContent='Copied ✓').catch(()=>{})};
 $('leave').onclick=()=>location.reload();
+$('orig').onchange=()=>{$('rv').muted=!$('orig').checked;const p=$('rv').play();if(p&&p.catch)p.catch(()=>{})};
 function say(t){if(!t||!conn||!conn.open)return;msg(t,'You said',true);conn.send({t:'speech',text:t,lang:$('lang').value,voice:$('voice').value})}
 $('sendT').onclick=()=>{say($('typed').value.trim());$('typed').value=''};$('typed').onkeydown=e=>{if(e.key==='Enter')$('sendT').onclick()};
 $('mic').onclick=()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
