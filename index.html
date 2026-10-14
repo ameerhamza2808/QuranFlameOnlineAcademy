@@ -66,9 +66,11 @@ footer{padding:28px 20px;text-align:center;color:var(--mu);font-size:13px}
 <div class="panel" id="setup">
 <div class="row">
 <div><label>I am</label><select id="role"><option>Teacher</option><option>Student</option></select></div>
-<div><label>My language (I speak)</label><select id="lang"></select></div>
+<div><label>I speak in (mic language)</label><select id="lang"></select></div>
+<div><label>I want to hear in (other person's words)</label><select id="hear"></select></div>
 <div><label>My voice (how the other person hears me)</label><select id="voice"></select></div></div>
-<p><button class="btn alt" id="test">🔊 Test my voice</button> <button class="btn alt" id="chk">🩺 Check my device</button></p><div class="st" id="testst"></div>
+<p><button class="btn alt" id="test">🔊 Test my voice (hearing language)</button> <button class="btn alt" id="chk">🩺 Check my device</button></p><div class="st" id="testst"></div>
+<div class="panel" style="margin:14px 0 0;background:var(--bg)"><b>🎤 Mic check</b><p class="st" style="margin:4px 0">Speak in the language chosen under "I speak in". You will see what was understood, how it is translated into your "hear" language, and hear it in your chosen voice.</p><button class="btn alt" id="mcBtn">🎤 Check my mic</button><div id="mcres" class="st" style="white-space:pre-line"></div></div>
 <hr style="border:0;border-top:1px solid var(--ln);margin:18px 0">
 <div class="row"><div><p><b>Starting the class?</b></p><button class="btn" id="startBtn">Start class &amp; get code</button></div>
 <div><label>Have a code? Paste it here</label><input id="codein" maxlength="8" placeholder="CODE" style="text-transform:uppercase"><p><button class="btn" id="joinBtn">Join with code</button></p></div></div>
@@ -97,7 +99,7 @@ if(CLASS){document.querySelector('.site').classList.add('hide');$('cls').classLi
 function initClass(){
 const FEM=/fem|zira|samantha|aria|jenny|hazel|amelie|alice|elsa|paola|sara|uzma|karen|susan/i,MAL=/\bmale\b|david|mark|guy|daniel|thomas|luca|asad|alex|diego/i;
 const HI='अस्सलामु अलैकुम, मेरी आवाज़ ऐसी सुनाई देगी।';
-for(const k in LANGS)$('lang').add(new Option(LANGS[k][0],k));
+for(const k in LANGS){$('lang').add(new Option(LANGS[k][0],k));$('hear').add(new Option(LANGS[k][0],k))}
 for(const k in VOICES)$('voice').add(new Option(VOICES[k][0],k));
 let peer=null,conn=null,call=null,local=null,cam=null,scr=null,rec=null,listening=false,other=null,hostMode=false;
 const msg=(t,s,me)=>{const d=document.createElement('div');d.className='m'+(me?' me':'');const x=document.createElement('small');x.textContent=s;d.append(x,document.createTextNode(t));$('log').prepend(d);return d};
@@ -117,15 +119,36 @@ async function tr(t,from,to){if(from===to)return t;
  return dec((j.responseData&&j.responseData.translatedText)||t)}
 $('chk').onclick=()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition,vs=speechSynthesis.getVoices(),L=[...new Set(vs.map(x=>x.lang.replace('_','-').slice(0,2).toLowerCase()))];
  $('testst').innerHTML='Mic speech recognition: <b>'+(SR?'supported':'NOT supported')+'</b><br>Voices installed: <b>'+vs.length+'</b> ('+(L.join(', ')||'none')+')<br>Urdu voice: <b>'+(L.includes('ur')?'yes':'no')+'</b> · Hindi voice: <b>'+(L.includes('hi')?'yes':'no')+'</b>'};
-$('test').onclick=()=>{const l=$('lang').value,t=ttsLang(l);speak(t==='hi'&&l==='ur'?HI:SAMPLE[l],t,$('voice').value);$('testst').textContent='Playing your voice sample…'};
+$('test').onclick=()=>{const l=$('hear').value,t=ttsLang(l);speak(t==='hi'&&l==='ur'?HI:SAMPLE[l],t,$('voice').value);$('testst').textContent='Playing your voice sample…'};
+
+let mcRec=null;
+function mcStart(ci){const SR=window.SpeechRecognition||window.webkitSpeechRecognition,lg=$('lang').value,hl=$('hear').value,cand={ur:['ur-PK','ur-IN','hi-IN']}[lg]||[LANGS[lg][1]];
+ mcRec=new SR();mcRec.lang=cand[ci];mcRec.continuous=false;mcRec.interimResults=true;let retry=false;
+ $('mcBtn').textContent='⏹ Stop';$('mcres').textContent='Listening… speak in '+LANGS[lg][0]+' ('+mcRec.lang+')';
+ mcRec.onresult=async e=>{const r=e.results[e.results.length-1],t=r[0].transcript.trim();
+  if(!r.isFinal){$('mcres').textContent='… '+t;return}
+  let src=lg;if(lg==='ur'&&/[\u0900-\u097F]/.test(t))src='hi';
+  $('mcres').textContent='Understood ('+LANGS[lg][0]+'): '+t+'\nTranslating to '+LANGS[hl][0]+'…';
+  try{const out=await tr(t,src,hl),sl=ttsLang(hl),sp=sl===hl?out:await tr(t,src,sl);
+   $('mcres').textContent='Understood ('+LANGS[lg][0]+'): '+t+'\nTranslated to '+LANGS[hl][0]+': '+out+(lg===hl?'\n(Same language, so no translation was needed.)':'')+'\n🔊 Playing in your chosen voice…';speak(sp,sl,$('voice').value)}
+  catch(x){$('mcres').textContent='Understood ('+LANGS[lg][0]+'): '+t+'\nTranslation failed: '+(x&&x.message||x)}};
+ mcRec.onerror=e=>{if(e.error==='language-not-supported'&&ci<cand.length-1){retry=true;mcRec=null;mcStart(ci+1);return}
+  if(e.error==='no-speech'){$('mcres').textContent='Nothing was heard. Check the mic and try again.';return}
+  $('mcres').textContent='Mic problem: '+e.error+(e.error==='not-allowed'?' (allow the microphone in the browser address bar)':'')};
+ mcRec.onend=()=>{if(retry)return;mcRec=null;$('mcBtn').textContent='🎤 Check my mic'};
+ mcRec.start()}
+$('mcBtn').onclick=()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!SR){$('mcres').textContent='Speech recognition is not supported on this browser. Use Chrome or Edge.';return}
+ if(mcRec){try{mcRec.stop()}catch(e){}return}
+ try{mcStart(0)}catch(e){$('mcres').textContent='Mic could not start: '+e.message}};
 
 async function onData(d){if(!d||d.t==='p')return;nRecv++;dbg();
- if(d.t==='hi'){other=d;$('status').innerHTML='Connected with <b>'+d.role+'</b> (speaks '+LANGS[d.lang][0]+').';$('mic').disabled=false}
- else if(d.t==='speech'){msg(d.text,'Received ('+LANGS[d.lang][0]+')');const my=$('lang').value;let src=d.lang;if(src==='ur'&&/[\u0900-\u097F]/.test(d.text))src='hi';
+ if(d.t==='hi'){other=d;$('status').innerHTML='Connected with <b>'+d.role+'</b> (speaks '+LANGS[d.lang][0]+', hears '+LANGS[d.hear||d.lang][0]+').';$('mic').disabled=false}
+ else if(d.t==='speech'){msg(d.text,'Received ('+LANGS[d.lang][0]+')');const my=$('hear').value;let src=d.lang;if(src==='ur'&&/[\u0900-\u097F]/.test(d.text))src='hi';
   try{const out=await tr(d.text,src,my),sl=ttsLang(my),sp=sl===my?out:await tr(d.text,src,sl);
    const el=msg(out,'Heard ('+LANGS[d.lang][0]+' → '+LANGS[my][0]+')');const pb=document.createElement('button');pb.textContent='▶ Play';pb.className='btn alt';pb.style.cssText='padding:2px 10px;margin-top:4px;font-size:12px';pb.onclick=()=>speak(sp,sl,d.voice);el.append(pb);speak(sp,sl,d.voice)}catch(e){msg('Translation failed ('+(e&&e.name==='AbortError'?'timeout':(e&&e.message||e))+'). Speaking the original words instead.','System');speak(d.text,ttsLang(d.lang),d.voice)}}}
 let lastRx=Date.now(),curId='',relinkTimer=null;
-function setup(c){conn=c;let sent=false;const hi=()=>{if(sent)return;sent=true;c.send({t:'hi',role:$('role').value,lang:$('lang').value,voice:$('voice').value})};
+function setup(c){conn=c;let sent=false;const hi=()=>{if(sent)return;sent=true;c.send({t:'hi',role:$('role').value,lang:$('lang').value,hear:$('hear').value,voice:$('voice').value})};
  c.on('open',()=>{st.data=1;lastRx=Date.now();dbg();hi()});if(c.open){st.data=1;dbg();hi()}
  c.on('data',d=>{lastRx=Date.now();onData(d)});
  c.on('close',()=>{if(conn!==c)return;st.data=0;dbg();$('mic').disabled=true;$('status').textContent='Link dropped, reconnecting…';if(!hostMode)relink()});
@@ -159,7 +182,7 @@ $('startBtn').onclick=()=>{prime();const c=gen();$('codeshow').textContent=c;$('
 $('joinBtn').onclick=()=>{prime();const c=$('codein').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');if(c.length<6){$('status').textContent='Please paste the 6-character code you received.';return}enter(c,false)};
 $('copy').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText($('codeshow').textContent).then(()=>$('copy').textContent='Copied ✓').catch(()=>{})};
 $('leave').onclick=()=>location.reload();
-$('snd').onclick=()=>{const l=$('lang').value,t=ttsLang(l);speak(t==='hi'&&l==='ur'?HI:SAMPLE[l],t,$('voice').value)};
+$('snd').onclick=()=>{const l=$('hear').value,t=ttsLang(l);speak(t==='hi'&&l==='ur'?HI:SAMPLE[l],t,$('voice').value)};
 const prime=()=>{try{speechSynthesis.speak(new SpeechSynthesisUtterance(' '))}catch(e){}};
 window.addEventListener('error',e=>msg('Error: '+e.message,'System'));window.addEventListener('unhandledrejection',e=>msg('Error: '+(e.reason&&e.reason.message||e.reason),'System'));
 $('orig').onchange=()=>{$('rv').muted=!$('orig').checked;const p=$('rv').play();if(p&&p.catch)p.catch(()=>{})};
