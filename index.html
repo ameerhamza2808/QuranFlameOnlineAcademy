@@ -32,7 +32,7 @@ select,input,textarea{width:100%;padding:10px;border:1px solid var(--ln);border-
 video{width:100%;aspect-ratio:4/3;background:#000;border-radius:10px;object-fit:contain}
 #log{max-height:220px;overflow:auto;margin-top:12px;display:flex;flex-direction:column;gap:8px}
 .m{padding:8px 12px;border-radius:8px;background:var(--bg);border:1px solid var(--ln);font-size:14px}.m.me{border-color:var(--gd)}.m small{color:var(--mu);display:block}
-.mic{width:76px;height:76px;border-radius:50%;font-size:28px;border:0;background:var(--pr);color:var(--on);cursor:pointer}.mic.on{background:var(--er);color:#fff}
+.mic{width:76px;height:76px;border-radius:50%;font-size:28px;border:0;background:var(--pr);color:var(--on);cursor:pointer}.mic.off{background:var(--er);color:#fff}
 .ctl{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:center;margin-top:14px}
 #admin{display:none;border:2px dashed var(--gd);border-radius:10px;padding:20px;margin-top:20px;background:var(--gl);color:#1b1c1a}
 #admin label,#admin .st{color:#1b1c1a}
@@ -80,7 +80,7 @@ footer{padding:28px 20px;text-align:center;color:var(--mu);font-size:13px}
 <div id="live" class="hide">
 <div class="vids"><div><video id="rv" autoplay playsinline muted></video><div class="st">Other person</div></div><div><video id="lv" autoplay playsinline muted></video><div class="st">You</div></div></div>
 <div class="ctl"><button class="mic" id="mic" title="Speak">🎤</button><button class="btn alt" id="scr">🖥 Share screen</button><button class="btn alt" id="leave">Leave</button><button class="btn alt" id="snd">🔊 Test sound</button><label style="display:flex;gap:6px;align-items:center;margin:0;text-transform:none;letter-spacing:0"><input type="checkbox" id="orig" style="width:auto">Hear original voice too</label></div>
-<div class="st" id="micst" style="text-align:center">Tap the mic and speak. The other person hears you translated.</div>
+<div class="st" id="micst" style="text-align:center">The mic turns on by itself when the other person joins. Tap it to mute (red) or unmute.</div>
 <div class="row" style="margin-top:14px"><input id="typed" placeholder="Or type your message here (works for Urdu too)"><button class="btn" id="sendT">Send</button></div><div id="log"></div></div>
 </section></div>
 
@@ -143,7 +143,7 @@ $('mcBtn').onclick=()=>{const SR=window.SpeechRecognition||window.webkitSpeechRe
  try{mcStart(0)}catch(e){$('mcres').textContent='Mic could not start: '+e.message}};
 
 async function onData(d){if(!d||d.t==='p')return;nRecv++;dbg();
- if(d.t==='hi'){other=d;$('status').innerHTML='Connected with <b>'+d.role+'</b> (speaks '+LANGS[d.lang][0]+', hears '+LANGS[d.hear||d.lang][0]+').';$('mic').disabled=false}
+ if(d.t==='hi'){other=d;$('status').innerHTML='Connected with <b>'+d.role+'</b> (speaks '+LANGS[d.lang][0]+', hears '+LANGS[d.hear||d.lang][0]+').';$('mic').disabled=false;if(!muted&&!listening)startMic()}
  else if(d.t==='speech'){msg(d.text,'Received ('+LANGS[d.lang][0]+')');const my=$('hear').value;let src=d.lang;if(src==='ur'&&/[\u0900-\u097F]/.test(d.text))src='hi';
   try{const out=await tr(d.text,src,my),sl=ttsLang(my),sp=sl===my?out:await tr(d.text,src,sl);
    const el=msg(out,'Heard ('+LANGS[d.lang][0]+' → '+LANGS[my][0]+')');const pb=document.createElement('button');pb.textContent='▶ Play';pb.className='btn alt';pb.style.cssText='padding:2px 10px;margin-top:4px;font-size:12px';pb.onclick=()=>speak(sp,sl,d.voice);el.append(pb);speak(sp,sl,d.voice)}catch(e){msg('Translation failed ('+(e&&e.name==='AbortError'?'timeout':(e&&e.message||e))+'). Speaking the original words instead.','System');speak(d.text,ttsLang(d.lang),d.voice)}}}
@@ -151,7 +151,7 @@ let lastRx=Date.now(),curId='',relinkTimer=null;
 function setup(c){conn=c;let sent=false;const hi=()=>{if(sent)return;sent=true;c.send({t:'hi',role:$('role').value,lang:$('lang').value,hear:$('hear').value,voice:$('voice').value})};
  c.on('open',()=>{st.data=1;lastRx=Date.now();dbg();hi()});if(c.open){st.data=1;dbg();hi()}
  c.on('data',d=>{lastRx=Date.now();onData(d)});
- c.on('close',()=>{if(conn!==c)return;st.data=0;dbg();$('mic').disabled=true;$('status').textContent='Link dropped, reconnecting…';if(!hostMode)relink()});
+ c.on('close',()=>{if(conn!==c)return;st.data=0;dbg();$('mic').disabled=true;stopMic();$('status').textContent='Link dropped, reconnecting…';if(!hostMode)relink()});
  c.on('error',()=>{});
  c.on('iceStateChanged',x=>{if(x==='failed')$('status').textContent='Network blocked the direct link. Trying again…'})}
 function hook(c){call=c;c.on('stream',s=>{$('rv').srcObject=s;st.vid=1;dbg()});c.on('close',()=>{st.vid=0;dbg()})}
@@ -163,7 +163,7 @@ function relink(){if(relinkTimer)return;relinkTimer=setTimeout(()=>{relinkTimer=
 setInterval(()=>{if(conn&&conn.open){try{conn.send({t:'p'})}catch(e){}if(Date.now()-lastRx>20000){try{conn.close()}catch(e){}}}},5000);
 const gen=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<6;i++)s+=a[Math.floor(Math.random()*a.length)];return s};
 async function enter(code,host){
- hostMode=host;curId='qfa-'+code;$('setup').classList.add('hide');$('live').classList.remove('hide');$('mic').disabled=true;
+ hostMode=host;curId='qfa-'+code;$('setup').classList.add('hide');$('live').classList.remove('hide');$('mic').disabled=true;setMicUI();
  $('status').textContent=host?'Starting class…':'Connecting…';
  for(const c of [{video:true,audio:true},{video:true},{audio:true}]){try{local=await navigator.mediaDevices.getUserMedia(c);break}catch(e){}}
  if(local){cam=local.getVideoTracks()[0]||null;$('lv').srcObject=local}else msg('Camera and mic not available. Check browser permissions. You can still type.','System')
@@ -195,18 +195,23 @@ $('sendT').onclick=()=>{say($('typed').value.trim());$('typed').value=''};$('typ
 function startRec(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
  const lg=$('lang').value,cand={ur:['ur-PK','ur-IN','hi-IN']}[lg]||[LANGS[lg][1]];window._ri=window._ri||0;
  rec=new SR();rec.lang=cand[Math.min(window._ri,cand.length-1)];rec.continuous=false;rec.interimResults=true;
- rec.onaudiostart=()=>{$('micst').textContent='Mic is on ('+rec.lang+'). Speak now…'};
+ rec.onaudiostart=()=>{$('micst').textContent='Mic is ON ('+rec.lang+'). Just speak, it is translated automatically. Tap the mic to mute.'};
  rec.onspeechstart=()=>{$('micst').textContent='Hearing you…'};
  rec.onresult=e=>{for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i],t=r[0].transcript.trim();if(r.isFinal){if(!window._spk)say(t)}else $('micst').textContent='… '+t}};
  rec.onerror=e=>{if(e.error==='no-speech'||e.error==='aborted')return;
   if(e.error==='language-not-supported'&&cand.length>window._ri+1){window._ri++;return}
-  listening=false;$('mic').classList.remove('on');$('micst').textContent='Mic problem: '+e.error+'. '+(e.error==='network'?'Browser speech service unreachable. ':'')+'Please type your message in the box below instead.';msg('Mic problem: '+e.error+'. Please type your message instead.','System')};
- rec.onend=()=>{if(listening){try{startRec()}catch(x){}}else{$('mic').classList.remove('on');$('micst').textContent='Mic off. Tap to speak.'}};
+  listening=false;setMicUI();$('micst').textContent='Mic problem: '+e.error+'. '+(e.error==='network'?'Browser speech service unreachable. ':'')+'Please type your message in the box below instead.';msg('Mic problem: '+e.error+'. Please type your message instead.','System')};
+ rec.onend=()=>{if(listening){try{startRec()}catch(x){}}else{setMicUI()}};
  rec.start()}
-$('mic').onclick=()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let muted=false;
+function setMicUI(){const m=$('mic');m.classList.toggle('off',!listening);m.textContent=listening?'🎤':'🔇';
+ if(local)local.getAudioTracks().forEach(t=>{t.enabled=listening});
+ $('micst').textContent=listening?'Mic is ON. Just speak, your words are translated automatically. Tap the mic to mute.':(muted?'Mic is OFF (muted). The other person cannot hear you, but you can still hear them. Tap the mic to turn it on.':'Waiting for the other person…')}
+function startMic(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
  if(!SR){$('micst').textContent='Speech recognition is not supported on this browser. Use Chrome or Edge, or type below.';return}
- if(listening){listening=false;rec.stop();return}
- listening=true;$('mic').classList.add('on');$('micst').textContent='Starting mic…';try{startRec()}catch(e){listening=false;$('micst').textContent='Mic could not start: '+e.message}};
+ if(listening)return;listening=true;setMicUI();try{startRec()}catch(e){listening=false;setMicUI();$('micst').textContent='Mic could not start: '+e.message}}
+function stopMic(){listening=false;try{rec&&rec.abort()}catch(e){}setMicUI()}
+$('mic').onclick=()=>{if(listening){muted=true;stopMic()}else{muted=false;startMic()}};
 function snd(){return call&&call.peerConnection.getSenders().find(x=>x.track&&x.track.kind==='video')}
 async function stopScr(){if(!scr)return;scr.stop();scr=null;const s=snd();if(s&&cam)await s.replaceTrack(cam);$('lv').srcObject=local;$('scr').textContent='🖥 Share screen'}
 $('scr').onclick=async()=>{if(scr){stopScr();return}
