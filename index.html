@@ -78,6 +78,7 @@ footer{padding:28px 20px;text-align:center;color:var(--mu);font-size:13px}
 <div class="panel hide" id="codebox"><b>Send this code to the other person:</b><br><br><span class="code" id="codeshow"></span> <button class="btn alt" id="copy">Copy</button></div>
 <div class="st" id="status"></div><div class="st" id="dbg"></div>
 <div id="live" class="hide">
+<div class="panel" style="margin:0 0 12px;text-align:center"><div class="st" style="margin:0">Class code</div><span class="code" id="code2" style="font-size:24px"></span> <button class="btn alt" id="copy2">Copy</button><div class="st" id="who" style="margin:8px 0 0"></div></div>
 <div class="vids"><div><video id="rv" autoplay playsinline muted></video><div class="st">Other person</div></div><div><video id="lv" autoplay playsinline muted></video><div class="st">You</div></div></div>
 <div class="ctl"><button class="mic" id="mic" title="Speak">🎤</button><button class="btn alt" id="scr">🖥 Share screen</button><button class="btn alt" id="leave">Leave</button><button class="btn alt" id="snd">🔊 Test sound</button><label style="display:flex;gap:6px;align-items:center;margin:0;text-transform:none;letter-spacing:0"><input type="checkbox" id="orig" style="width:auto">Hear original voice too</label></div>
 <div class="st" id="micst" style="text-align:center">The mic turns on by itself when the other person joins. Tap it to mute (red) or unmute.</div>
@@ -164,13 +165,14 @@ setInterval(()=>{if(conn&&conn.open){try{conn.send({t:'p'})}catch(e){}if(Date.no
 const gen=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let s='';for(let i=0;i<6;i++)s+=a[Math.floor(Math.random()*a.length)];return s};
 async function enter(code,host){
  hostMode=host;curId='qfa-'+code;$('setup').classList.add('hide');$('live').classList.remove('hide');$('mic').disabled=true;setMicUI();
- $('status').textContent=host?'Starting class…':'Connecting…';
+ $('status').textContent='Waiting for the other person to connect…';$('code2').textContent=code;$('who').textContent='You: '+$('role').value+' · speak '+LANGS[$('lang').value][0]+' · hear '+LANGS[$('hear').value][0]+' · voice '+VOICES[$('voice').value][0];
+ $('copy2').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(code).then(()=>{$('copy2').textContent='Copied ✓'}).catch(()=>{})};
  for(const c of [{video:true,audio:true},{video:true},{audio:true}]){try{local=await navigator.mediaDevices.getUserMedia(c);break}catch(e){}}
  if(local){cam=local.getVideoTracks()[0]||null;$('lv').srcObject=local}else msg('Camera and mic not available. Check browser permissions. You can still type.','System')
  const ICE={config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},{urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turns:openrelay.metered.ca:443?transport=tcp'],username:'openrelayproject',credential:'openrelayproject'}]}};
  peer=host?new Peer(curId,ICE):new Peer(ICE);let started=false;
  peer.on('open',()=>{st.srv=1;dbg();
-  if(host){if(!other)$('status').textContent='Class is ready ✓ Send the code and wait for the other person…'}
+  if(host){if(!other)$('status').textContent='Waiting for the other person to connect…'}
   else if(!started){started=true;setTimeout(()=>{if(!other)$('status').textContent='Could not connect. Check the code (6 characters) and that the class creator still has the page open.'},20000);link()}
   else if(!(conn&&conn.open))relink()});
  peer.on('disconnected',()=>{st.srv=0;dbg();setTimeout(()=>{try{peer.reconnect()}catch(e){}},1500)});
@@ -178,7 +180,7 @@ async function enter(code,host){
   $('status').textContent='Connection problem: '+e.type+'. Retrying…';if(['network','server-error','socket-error','socket-closed'].includes(e.type))setTimeout(()=>{try{peer.reconnect()}catch(x){}},3000)});
  if(host){peer.on('connection',c=>{const old=conn;setup(c);if(old&&old!==c)try{old.close()}catch(e){}});}
  peer.on('call',c=>{c.answer(local||new MediaStream());hook(c)})}
-$('startBtn').onclick=()=>{prime();const c=gen();$('codeshow').textContent=c;$('codebox').classList.remove('hide');enter(c,true)};
+$('startBtn').onclick=()=>{prime();enter(gen(),true)};
 $('joinBtn').onclick=()=>{prime();const c=$('codein').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');if(c.length<6){$('status').textContent='Please paste the 6-character code you received.';return}enter(c,false)};
 $('copy').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText($('codeshow').textContent).then(()=>$('copy').textContent='Copied ✓').catch(()=>{})};
 $('leave').onclick=()=>location.reload();
